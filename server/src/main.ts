@@ -13,7 +13,13 @@ async function bootstrap() {
     .build();
   const documentFactory = () => SwaggerModule.createDocument(app, config);
   SwaggerModule.setup('api', app, documentFactory);
-  app.use(helmet());
+  // app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: false,
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
   app.enableCors({
     origin: 'http://localhost:3000',
     credentials: true,
