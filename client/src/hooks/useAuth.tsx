@@ -1,70 +1,59 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from 'react'
-import { api, getToken, setToken } from '../lib/api'
+import { api } from '../lib/api'
 import type { AuthResponse, User } from '../types'
 
 type AuthContextValue = {
   user: User | null
-  token: string | null
   loading: boolean
   login: (email: string, password: string) => Promise<void>
   register: (name: string, email: string, password: string) => Promise<void>
-  logout: () => void
+  loginWithUser: (user: User) => void
+  refreshUser: () => Promise<void>
+  logout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
-  const [token, setTokenState] = useState<string | null>(getToken())
   const [loading, setLoading] = useState(true)
+
+  const refreshUser = useCallback(async () => {
+    try {
+      const { data } = await api.get<User>('/auth/me')
+      setUser(data)
+    } catch {
+      setUser(null)
+    }
+  }, [])
 
   useEffect(() => {
     async function loadUser() {
-      if (!token) {
-        setUser(null)
-        setLoading(false)
-        return
-      }
-
-      try {
-        const { data } = await api.get<User>('/auth/me')
-        setUser(data)
-      } catch {
-        setToken(null)
-        setTokenState(null)
-        setUser(null)
-      } finally {
-        setLoading(false)
-      }
+      await refreshUser()
+      setLoading(false)
     }
 
     void loadUser()
-  }, [token])
-
-  async function applyAuth(response: AuthResponse) {
-    setToken(response.accessToken)
-    setTokenState(response.accessToken)
-    setUser(response.user)
-  }
+  }, [refreshUser])
 
   const value = useMemo<AuthContextValue>(
     () => ({
       user,
-      token,
       loading,
       login: async (email, password) => {
         const { data } = await api.post<AuthResponse>('/auth/login', {
           email,
           password,
         })
-        await applyAuth(data)
+        setUser(data.user)
       },
       register: async (name, email, password) => {
         const { data } = await api.post<AuthResponse>('/auth/register', {
@@ -72,15 +61,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           email,
           password,
         })
-        await applyAuth(data)
+        setUser(data.user)
       },
-      logout: () => {
-        setToken(null)
-        setTokenState(null)
+      loginWithUser: (next) => setUser(next),
+      refreshUser,
+      logout: async () => {
+        await api.post('/auth/logout')
         setUser(null)
       },
     }),
-    [user, token, loading],
+    [user, loading, refreshUser],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>

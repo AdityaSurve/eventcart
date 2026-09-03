@@ -137,6 +137,7 @@ describe('Auth + orders (e2e)', () => {
       email: 'e2e@test.com',
       role: Role.CUSTOMER,
       passwordHash: 'hashed',
+      googleId: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     });

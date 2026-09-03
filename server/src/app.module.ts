@@ -17,6 +17,7 @@ import { AuthModule } from './auth/auth.module';
 import { OrdersModule } from './orders/orders.module';
 import { CartModule } from './cart/cart.module';
 import { EventsModule } from './events/events.module';
+import { AnalyticsModule } from './analytics/analytics.module';
 import { isProduction } from './common/config/security.env';
 
 @Module({
@@ -53,6 +54,7 @@ import { isProduction } from './common/config/security.env';
     AuthModule,
     OrdersModule,
     CartModule,
+    AnalyticsModule,
   ],
   controllers: [AppController],
   providers: [

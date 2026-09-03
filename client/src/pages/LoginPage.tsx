@@ -1,10 +1,12 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { startAuthentication } from '@simplewebauthn/browser'
 import { useAuth } from '../hooks/useAuth'
-import { getErrorMessage } from '../lib/api'
+import { api, apiOrigin, getErrorMessage } from '../lib/api'
+import type { AuthResponse } from '../types'
 
 export function LoginPage() {
-  const { login } = useAuth()
+  const { login, loginWithUser } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const from = (location.state as { from?: string } | null)?.from ?? '/'
@@ -19,6 +21,27 @@ export function LoginPage() {
     setPending(true)
     try {
       await login(email, password)
+      navigate(from, { replace: true })
+    } catch (err) {
+      setError(getErrorMessage(err))
+    } finally {
+      setPending(false)
+    }
+  }
+
+  async function onPasskey() {
+    setError('')
+    setPending(true)
+    try {
+      const { data: options } = await api.post('/auth/webauthn/login/options', {
+        email,
+      })
+      const assertion = await startAuthentication({ optionsJSON: options })
+      const { data } = await api.post<AuthResponse>('/auth/webauthn/login/verify', {
+        email,
+        response: assertion,
+      })
+      loginWithUser(data.user)
       navigate(from, { replace: true })
     } catch (err) {
       setError(getErrorMessage(err))
@@ -64,6 +87,22 @@ export function LoginPage() {
           {pending ? 'Signing in…' : 'Sign in'}
         </button>
       </form>
+      <div className="mt-4 space-y-2">
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => void onPasskey()}
+          className="w-full rounded-lg border border-stone-300 py-2.5 text-sm font-medium hover:bg-stone-50 disabled:opacity-60"
+        >
+          Sign in with passkey / Windows Hello
+        </button>
+        <a
+          href={`${apiOrigin()}/auth/google`}
+          className="block w-full rounded-lg border border-stone-300 py-2.5 text-center text-sm font-medium hover:bg-stone-50"
+        >
+          Continue with Google
+        </a>
+      </div>
       <p className="mt-4 text-sm text-stone-600">
         No account?{' '}
         <Link className="text-ticket" to="/register">

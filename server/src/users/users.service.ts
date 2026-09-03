@@ -14,7 +14,8 @@ type UserRecord = {
   id: string;
   name: string;
   email: string;
-  passwordHash: string;
+  passwordHash: string | null;
+  googleId?: string | null;
   role: Role;
   createdAt: Date;
   updatedAt: Date;
@@ -129,8 +130,16 @@ export class UsersService {
   }
 
   toResponse(user: UserRecord) {
-    const { passwordHash: _passwordHash, ...safeUser } = user;
-    return safeUser;
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      hasPassword: Boolean(user.passwordHash),
+      hasGoogle: Boolean(user.googleId),
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
   }
 
   private async findOneOrThrow(id: string) {

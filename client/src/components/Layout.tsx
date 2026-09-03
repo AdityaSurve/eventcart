@@ -41,13 +41,16 @@ export function Layout() {
                   Orders
                 </NavLink>
                 {user.role === 'ADMIN' ? (
-                  <NavLink to="/admin/products" className={navClass}>
-                    Admin
+                  <NavLink to="/admin/analytics" className={navClass}>
+                    Analytics
                   </NavLink>
                 ) : null}
+                <NavLink to="/account" className={navClass}>
+                  Account
+                </NavLink>
                 <button
                   type="button"
-                  onClick={logout}
+                  onClick={() => void logout()}
                   className="text-stone-500 hover:text-ink"
                 >
                   Log out

@@ -47,9 +47,14 @@ export function AdminProductsPage() {
     <div>
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-semibold">Admin products</h1>
-        <Link to="/admin/orders" className="text-sm text-ticket">
-          Orders →
-        </Link>
+        <div className="flex gap-4 text-sm">
+          <Link to="/admin/analytics" className="text-ticket">
+            Analytics
+          </Link>
+          <Link to="/admin/orders" className="text-ticket">
+            Orders
+          </Link>
+        </div>
       </div>
 
       <form

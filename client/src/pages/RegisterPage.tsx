@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../hooks/useAuth'
-import { getErrorMessage } from '../lib/api'
+import { apiOrigin, getErrorMessage } from '../lib/api'
 
 export function RegisterPage() {
   const { register } = useAuth()
@@ -69,6 +69,12 @@ export function RegisterPage() {
           {pending ? 'Creating…' : 'Register'}
         </button>
       </form>
+      <a
+        href={`${apiOrigin()}/auth/google`}
+        className="mt-3 block w-full rounded-lg border border-stone-300 py-2.5 text-center text-sm font-medium hover:bg-stone-50"
+      >
+        Continue with Google
+      </a>
       <p className="mt-4 text-sm text-stone-600">
         Already have an account?{' '}
         <Link className="text-ticket" to="/login">

@@ -13,13 +13,53 @@ export type User = {
   name: string
   email: string
   role: Role
+  hasPassword?: boolean
+  hasGoogle?: boolean
   createdAt: string
   updatedAt: string
 }
 
 export type AuthResponse = {
-  accessToken: string
+  accessToken?: string
   user: User
+}
+
+export type AnalyticsOverview = {
+  kpis: {
+    orders: number
+    paidOrders: number
+    cancelledOrders: number
+    revenue: number
+    averageOrder: number
+    projectedRevenue14d: number
+  }
+  revenueByDay: { date: string; revenue: number; orders: number }[]
+  projectedRevenue: { dayOffset: number; amount: number }[]
+  statusBreakdown: { status: string; count: number }[]
+  topProducts: { name: string; slug: string; unitsSold: number; projectedRevenue14d: number }[]
+  fastestSelling: ProductPrediction[]
+  inDemand: ProductPrediction[]
+  predictions: ProductPrediction[]
+  model: {
+    name: string
+    description: string
+    horizonDays: number
+    sampleDays: number
+  }
+}
+
+export type ProductPrediction = {
+  productId: string
+  name: string
+  slug: string
+  stock: number
+  unitsSold: number
+  recentUnits7d: number
+  previousUnits7d: number
+  velocityPerDay: number
+  demand: 'hot' | 'steady' | 'cooling'
+  projectedUnits14d: number
+  projectedRevenue14d: number
 }
 
 export type Product = {

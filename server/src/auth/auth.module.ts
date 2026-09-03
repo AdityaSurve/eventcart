@@ -5,7 +5,10 @@ import { PassportModule } from '@nestjs/passport';
 import { UsersModule } from '../users/users.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { GoogleEnabledGuard } from './guards/google-enabled.guard';
+import { GoogleStrategy } from './strategies/google.strategy';
 import { JwtStrategy } from './strategies/jwt.strategy';
+import { WebAuthnService } from './webauthn.service';
 
 @Module({
   imports: [
@@ -36,7 +39,13 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    GoogleStrategy,
+    WebAuthnService,
+    GoogleEnabledGuard,
+  ],
   exports: [AuthService, JwtModule],
 })
 export class AuthModule {}

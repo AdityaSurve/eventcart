@@ -23,16 +23,32 @@ enum OrderStatus {
 }
 
 model User {
-  id           String @id @default(cuid())
+  id           String  @id @default(cuid())
   name         String
-  email        String @unique
-  passwordHash String
-  role         Role   @default(CUSTOMER)
+  email        String  @unique
+  passwordHash String?
+  googleId     String? @unique
+  role         Role    @default(CUSTOMER)
   orders        Order[]
   statusChanges OrderStatusHistory[] @relation("StatusChangedBy")
+  webauthnCredentials WebAuthnCredential[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([role])
+}
+
+model WebAuthnCredential {
+  id           String  @id @default(cuid())
+  credentialId String  @unique
+  publicKey    Bytes
+  counter      Int     @default(0)
+  deviceType   String?
+  backedUp     Boolean @default(false)
+  transports   String?
+  userId       String
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  @@index([userId])
 }
 
 model Product {
