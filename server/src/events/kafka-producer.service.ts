@@ -7,6 +7,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Kafka, Producer, logLevel } from 'kafkajs';
 import { KAFKA_TOPICS } from './kafka.topics';
+import { ensureKafkaTopics } from './kafka-topics.setup';
 
 @Injectable()
 export class KafkaProducerService implements OnModuleInit, OnModuleDestroy {
@@ -32,42 +33,13 @@ export class KafkaProducerService implements OnModuleInit, OnModuleDestroy {
       retry: { retries: 8 },
     });
 
-    await this.ensureTopics();
+    await ensureKafkaTopics(this.kafka, (message) =>
+      this.logger.log(message),
+    );
 
     this.producer = this.kafka.producer();
     await this.producer.connect();
     this.logger.log(`Kafka producer connected (${brokers.join(', ')})`);
-  }
-
-  private async ensureTopics() {
-    const admin = this.kafka.admin();
-    await admin.connect();
-
-    try {
-      const created = await admin.createTopics({
-        waitForLeaders: true,
-        topics: [
-          {
-            topic: KAFKA_TOPICS.ORDER_PLACED,
-            numPartitions: 1,
-            replicationFactor: 1,
-          },
-          {
-            topic: KAFKA_TOPICS.ORDER_STATUS_CHANGED,
-            numPartitions: 1,
-            replicationFactor: 1,
-          },
-        ],
-      });
-
-      this.logger.log(
-        created
-          ? 'Created Kafka topics order.placed, order.status.changed'
-          : 'Kafka topics already exist',
-      );
-    } finally {
-      await admin.disconnect();
-    }
   }
 
   async onModuleDestroy() {

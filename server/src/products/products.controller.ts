@@ -9,13 +9,20 @@ import {
   Patch,
   Post,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBearerAuth,
   ApiCreatedResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { SkipThrottle } from '@nestjs/throttler';
+import { Roles } from '../common/decorators/roles.decorator';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
+import { RolesGuard } from '../common/guards/roles.guard';
+import { Role } from '../generated/prisma/enums';
 import { CreateProductDto } from './dto/products.create';
 import { ListProductsQueryDto } from './dto/products.query';
 import { UpdateProductDto } from './dto/products.update';
@@ -27,12 +34,16 @@ export class ProductsController {
   constructor(private readonly productsService: ProductsService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Create a product' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Create a product (admin only)' })
   @ApiCreatedResponse({ description: 'Product created' })
   create(@Body() dto: CreateProductDto) {
     return this.productsService.create(dto);
   }
 
+  @SkipThrottle()
   @Get()
   @ApiOperation({ summary: 'List products (paginated)' })
   @ApiOkResponse({ description: 'Paginated product list' })
@@ -40,6 +51,7 @@ export class ProductsController {
     return this.productsService.findAll(query);
   }
 
+  @SkipThrottle()
   @Get('slug/:slug')
   @ApiOperation({ summary: 'Get a product by slug' })
   @ApiOkResponse({ description: 'Product found' })
@@ -47,6 +59,7 @@ export class ProductsController {
     return this.productsService.findBySlug(slug);
   }
 
+  @SkipThrottle()
   @Get(':id')
   @ApiOperation({ summary: 'Get a product by id' })
   @ApiOkResponse({ description: 'Product found' })
@@ -55,15 +68,21 @@ export class ProductsController {
   }
 
   @Patch(':id')
-  @ApiOperation({ summary: 'Update a product' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Update a product (admin only)' })
   @ApiOkResponse({ description: 'Product updated' })
   update(@Param('id') id: string, @Body() dto: UpdateProductDto) {
     return this.productsService.update(id, dto);
   }
 
   @Delete(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Soft-delete a product (sets isActive to false)' })
+  @ApiOperation({ summary: 'Soft-delete a product (admin only)' })
   @ApiOkResponse({ description: 'Product deactivated' })
   deactivate(@Param('id') id: string) {
     return this.productsService.deactivate(id);

@@ -6,6 +6,7 @@ import {
   ApiOperation,
   ApiTags,
 } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import {
   CurrentUser,
   RequestUser,
@@ -21,6 +22,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('register')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Register a new customer account' })
   @ApiCreatedResponse({ description: 'Account created and JWT returned' })
   register(@Body() dto: RegisterDto) {
@@ -28,6 +30,7 @@ export class AuthController {
   }
 
   @Post('login')
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Login with email and password' })
   @ApiOkResponse({ description: 'JWT access token returned' })
   login(@Body() dto: LoginDto) {

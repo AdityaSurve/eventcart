@@ -105,7 +105,7 @@ async function ensureUser(
   });
 }
 
-async function seedProducts(): Promise<string[]> {
+async function seedProducts(adminToken: string): Promise<string[]> {
   const productIds: string[] = [];
   let created = 0;
   let skipped = 0;
@@ -114,13 +114,18 @@ async function seedProducts(): Promise<string[]> {
     const slug = `seed-product-${String(i).padStart(3, '0')}`;
 
     try {
-      const product = await api<ProductResponse>('POST', '/products', {
-        name: `Seed Product ${i}`,
-        slug,
-        description: `Auto-generated test product #${i}`,
-        price: Number((5 + (i % 50) + Math.random()).toFixed(2)),
-        stock: 50 + (i % 100),
-      });
+      const product = await api<ProductResponse>(
+        'POST',
+        '/products',
+        {
+          name: `Seed Product ${i}`,
+          slug,
+          description: `Auto-generated test product #${i}`,
+          price: Number((5 + (i % 50) + Math.random()).toFixed(2)),
+          stock: 50 + (i % 100),
+        },
+        adminToken,
+      );
 
       productIds.push(product.id);
       created++;
@@ -178,7 +183,7 @@ async function main() {
   console.log(`  ✓ Admin: ${adminAuth.user.email}`);
 
   console.log(`\n2/4 Creating ${PRODUCT_COUNT} products...`);
-  const productIds = await seedProducts();
+  const productIds = await seedProducts(adminAuth.accessToken);
 
   console.log(`\n3/4 Placing ${ORDER_COUNT} orders as customer...`);
   await seedOrders(customerAuth.accessToken, productIds);

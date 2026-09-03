@@ -1,21 +1,11 @@
 # EventCart — Next Steps
 
-**Done:** NestJS APIs, JWT, Redis, Kafka, React + Vite + Tailwind shop UI.
+**Done:** NestJS APIs, JWT, Redis, Kafka, React shop, tests, security hardening, Docker Compose.
 
 ---
 
-## Phase 8 — Polish
+## Optional follow-ups
 
-1. Unit tests (`OrdersService`) + E2E (register → order)
-2. Logging, global exception filter
-3. Protect product write routes with `@Roles(ADMIN)`
-4. `prisma/seed.ts` for sample products
-5. README with local setup instructions
-
----
-
-## Phase 9 — Docker (last)
-
-1. `docker-compose.yml` — postgres, redis, kafka, server, client
-2. Dockerfiles for `server/` and `client/`
-3. `docker compose up --build` runs the full stack
+1. httpOnly cookie auth instead of localStorage JWT
+2. Stricter order status state machine
+3. `docker-compose.dev.yml` — Postgres + Redis + Kafka only; run `npm run start:dev` and `npm run dev` on the host

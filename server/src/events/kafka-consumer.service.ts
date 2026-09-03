@@ -11,6 +11,7 @@ import {
   OrderStatusChangedEvent,
 } from './kafka.events';
 import { KAFKA_TOPICS } from './kafka.topics';
+import { ensureKafkaTopics } from './kafka-topics.setup';
 
 @Injectable()
 export class KafkaConsumerService implements OnModuleInit, OnModuleDestroy {
@@ -30,7 +31,12 @@ export class KafkaConsumerService implements OnModuleInit, OnModuleDestroy {
       clientId: `${this.configService.get<string>('KAFKA_CLIENT_ID', 'eventcart-api')}-consumer`,
       brokers,
       logLevel: logLevel.WARN,
+      retry: { retries: 8 },
     });
+
+    await ensureKafkaTopics(this.kafka, (message) =>
+      this.logger.log(message),
+    );
 
     this.consumer = this.kafka.consumer({
       groupId: this.configService.get<string>(

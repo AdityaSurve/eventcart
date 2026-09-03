@@ -14,15 +14,25 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
-      useFactory: (configService: ConfigService) => ({
-        secret: configService.get<string>('JWT_SECRET'),
-        signOptions: {
-          expiresIn: configService.get<string>('JWT_EXPIRES_IN', '7d') as
-            | `${number}d`
-            | `${number}h`
-            | number,
-        },
-      }),
+      useFactory: (configService: ConfigService) => {
+        const secret = configService.get<string>('JWT_SECRET');
+
+        if (!secret || secret.length < 32) {
+          throw new Error(
+            'JWT_SECRET must be set and at least 32 characters',
+          );
+        }
+
+        return {
+          secret,
+          signOptions: {
+            expiresIn: configService.get<string>('JWT_EXPIRES_IN', '7d') as
+              | `${number}d`
+              | `${number}h`
+              | number,
+          },
+        };
+      },
     }),
   ],
   controllers: [AuthController],
