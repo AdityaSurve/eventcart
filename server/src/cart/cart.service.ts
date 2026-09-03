@@ -152,6 +152,9 @@ export class CartService {
             name: product.name,
             slug: product.slug,
             stock: product.stock,
+            imageUrl:
+              product.imageUrl ??
+              `https://picsum.photos/seed/${encodeURIComponent(product.slug)}/800/600`,
           },
         };
       })

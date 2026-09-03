@@ -16,6 +16,7 @@ type ProductRecord = {
   name: string;
   slug: string;
   description: string | null;
+  imageUrl: string | null;
   price: Prisma.Decimal;
   stock: number;
   isActive: boolean;
@@ -41,6 +42,7 @@ export class ProductsService {
           name: dto.name,
           slug: dto.slug,
           description: dto.description,
+          imageUrl: dto.imageUrl ?? this.defaultImage(dto.slug),
           price: dto.price,
           stock: dto.stock ?? 0,
           isActive: dto.isActive ?? true,
@@ -105,6 +107,7 @@ export class ProductsService {
           ...(dto.name !== undefined && { name: dto.name }),
           ...(dto.slug !== undefined && { slug: dto.slug }),
           ...(dto.description !== undefined && { description: dto.description }),
+          ...(dto.imageUrl !== undefined && { imageUrl: dto.imageUrl }),
           ...(dto.price !== undefined && { price: dto.price }),
           ...(dto.stock !== undefined && { stock: dto.stock }),
           ...(dto.isActive !== undefined && { isActive: dto.isActive }),
@@ -198,8 +201,13 @@ export class ProductsService {
   private toResponse(product: ProductRecord) {
     return {
       ...product,
+      imageUrl: product.imageUrl ?? this.defaultImage(product.slug),
       price: product.price.toNumber(),
     };
+  }
+
+  private defaultImage(slug: string) {
+    return `https://picsum.photos/seed/${encodeURIComponent(slug)}/800/600`;
   }
 
   private handlePrismaError(error: unknown, slug?: string): never {

@@ -78,6 +78,13 @@ export class OrdersController {
     return this.ordersService.updateStatus(id, dto, user.id);
   }
 
+  @Post(':id/cancel')
+  @ApiOperation({ summary: 'Cancel own pending/confirmed order' })
+  @ApiOkResponse({ description: 'Order cancelled' })
+  cancel(@Param('id') id: string, @CurrentUser() user: RequestUser) {
+    return this.ordersService.cancelByCustomer(id, user.id);
+  }
+
   private assertOwnerOrAdmin(orderUserId: string, currentUser: RequestUser) {
     if (currentUser.role === Role.ADMIN || currentUser.id === orderUserId) {
       return;

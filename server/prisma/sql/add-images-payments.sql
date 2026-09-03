@@ -1,0 +1,11 @@
+ALTER TABLE "Product" ADD COLUMN IF NOT EXISTS "imageUrl" TEXT;
+
+DO $$ BEGIN
+  CREATE TYPE "PaymentStatus" AS ENUM ('UNPAID', 'PAID', 'FAILED', 'REFUNDED');
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;
+
+ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "paymentStatus" "PaymentStatus" NOT NULL DEFAULT 'UNPAID';
+ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "paymentProvider" TEXT;
+ALTER TABLE "Order" ADD COLUMN IF NOT EXISTS "paymentRef" TEXT;

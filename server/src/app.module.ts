@@ -18,6 +18,7 @@ import { OrdersModule } from './orders/orders.module';
 import { CartModule } from './cart/cart.module';
 import { EventsModule } from './events/events.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { PaymentsModule } from './payments/payments.module';
 import { isProduction } from './common/config/security.env';
 
 @Module({
@@ -55,6 +56,7 @@ import { isProduction } from './common/config/security.env';
     OrdersModule,
     CartModule,
     AnalyticsModule,
+    PaymentsModule,
   ],
   controllers: [AppController],
   providers: [

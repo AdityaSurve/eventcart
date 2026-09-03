@@ -67,6 +67,7 @@ export type Product = {
   name: string
   slug: string
   description: string | null
+  imageUrl?: string | null
   price: number
   stock: number
   isActive: boolean
@@ -94,6 +95,7 @@ export type CartItem = {
     name: string
     slug: string
     stock: number
+    imageUrl?: string | null
   }
 }
 
@@ -112,6 +114,7 @@ export type OrderItem = {
     id: string
     name: string
     slug: string
+    imageUrl?: string | null
   }
 }
 
@@ -127,10 +130,15 @@ export type OrderStatusHistory = {
   } | null
 }
 
+export type PaymentStatus = 'UNPAID' | 'PAID' | 'FAILED' | 'REFUNDED'
+
 export type Order = {
   id: string
   orderNumber: string
   status: OrderStatus
+  paymentStatus?: PaymentStatus
+  paymentProvider?: string | null
+  paymentRef?: string | null
   subtotal: number
   total: number
   userId: string

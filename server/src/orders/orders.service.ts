@@ -10,17 +10,18 @@ import {
   OrderPlacedEvent,
   OrderStatusChangedEvent,
 } from '../events/kafka.events';
-import { OrderStatus, Prisma, Role } from '../generated/prisma/client';
+import { OrderStatus, PaymentStatus, Prisma, Role } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { ListOrdersQueryDto } from './dto/list-orders.query.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
+import { OrdersGateway } from './orders.gateway';
 
 const orderInclude = {
   items: {
     include: {
       product: {
-        select: { id: true, name: true, slug: true },
+        select: { id: true, name: true, slug: true, imageUrl: true },
       },
     },
   },
@@ -48,6 +49,7 @@ export class OrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly kafkaProducer: KafkaProducerService,
+    private readonly ordersGateway: OrdersGateway,
   ) {}
 
   async create(userId: string, dto: CreateOrderDto) {
@@ -269,6 +271,77 @@ export class OrdersService {
       timestamp: new Date().toISOString(),
     });
 
+    this.ordersGateway.emitOrderUpdated({
+      orderId: response.id,
+      orderNumber: response.orderNumber,
+      userId: response.userId,
+      status: response.status,
+      previousStatus,
+      paymentStatus: response.paymentStatus,
+    });
+
+    return response;
+  }
+
+  async cancelByCustomer(id: string, userId: string) {
+    const order = await this.prisma.order.findUnique({ where: { id } });
+
+    if (!order) {
+      throw new NotFoundException(`Order with id "${id}" not found`);
+    }
+
+    if (order.userId !== userId) {
+      throw new BadRequestException('You can only cancel your own orders');
+    }
+
+    if (
+      order.status !== OrderStatus.PENDING &&
+      order.status !== OrderStatus.CONFIRMED
+    ) {
+      throw new BadRequestException(
+        'Only pending or confirmed orders can be cancelled',
+      );
+    }
+
+    return this.updateStatus(
+      id,
+      { status: OrderStatus.CANCELLED, note: 'Cancelled by customer' },
+      userId,
+    );
+  }
+
+  async markPaid(
+    orderId: string,
+    payment: {
+      provider: string;
+      paymentRef: string;
+    },
+  ) {
+    const updated = await this.prisma.order.update({
+      where: { id: orderId },
+      data: {
+        paymentStatus: PaymentStatus.PAID,
+        paymentProvider: payment.provider,
+        paymentRef: payment.paymentRef,
+        status: OrderStatus.CONFIRMED,
+        statusHistory: {
+          create: {
+            status: OrderStatus.CONFIRMED,
+            note: `Paid via ${payment.provider}`,
+          },
+        },
+      },
+      include: orderInclude,
+    });
+
+    const response = this.toResponse(updated);
+    this.ordersGateway.emitOrderUpdated({
+      orderId: response.id,
+      orderNumber: response.orderNumber,
+      userId: response.userId,
+      status: response.status,
+      paymentStatus: response.paymentStatus,
+    });
     return response;
   }
 

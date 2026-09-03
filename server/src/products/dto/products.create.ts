@@ -39,6 +39,14 @@ export class CreateProductDto {
   @MaxLength(2000)
   description?: string;
 
+  @ApiPropertyOptional({
+    example: 'https://picsum.photos/seed/wireless-headphones/800/600',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  imageUrl?: string;
+
   @ApiProperty({
     example: 79.99,
   })

@@ -4,7 +4,15 @@ import { KafkaProducerService } from '../events/kafka-producer.service';
 import { KAFKA_TOPICS } from '../events/kafka.topics';
 import { OrderStatus, Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+
+jest.mock('./orders.gateway', () => ({
+  OrdersGateway: class OrdersGateway {
+    emitOrderUpdated = jest.fn();
+  },
+}));
+
 import { OrdersService } from './orders.service';
+import { OrdersGateway } from './orders.gateway';
 
 describe('OrdersService', () => {
   let service: OrdersService;
@@ -27,6 +35,9 @@ describe('OrdersService', () => {
     id: 'o1',
     orderNumber: 'EC-TEST',
     status: OrderStatus.PENDING,
+    paymentStatus: 'UNPAID',
+    paymentProvider: null,
+    paymentRef: null,
     subtotal: new Prisma.Decimal('25.00'),
     total: new Prisma.Decimal('25.00'),
     userId: 'u1',
@@ -39,7 +50,7 @@ describe('OrdersService', () => {
         unitPrice: new Prisma.Decimal('12.50'),
         lineTotal: new Prisma.Decimal('25.00'),
         productId: 'p1',
-        product: { id: 'p1', name: 'Mug', slug: 'mug' },
+        product: { id: 'p1', name: 'Mug', slug: 'mug', imageUrl: null },
       },
     ],
     statusHistory: [],
@@ -61,6 +72,7 @@ describe('OrdersService', () => {
         OrdersService,
         { provide: PrismaService, useValue: prisma },
         { provide: KafkaProducerService, useValue: kafkaProducer },
+        { provide: OrdersGateway, useValue: { emitOrderUpdated: jest.fn() } },
       ],
     }).compile();
 
