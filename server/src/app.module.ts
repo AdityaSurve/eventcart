@@ -19,6 +19,10 @@ import { CartModule } from './cart/cart.module';
 import { EventsModule } from './events/events.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { PaymentsModule } from './payments/payments.module';
+import { CategoriesModule } from './categories/categories.module';
+import { CouponsModule } from './coupons/coupons.module';
+import { WishlistModule } from './wishlist/wishlist.module';
+import { ReviewsModule } from './reviews/reviews.module';
 import { isProduction } from './common/config/security.env';
 
 @Module({
@@ -57,6 +61,10 @@ import { isProduction } from './common/config/security.env';
     CartModule,
     AnalyticsModule,
     PaymentsModule,
+    CategoriesModule,
+    CouponsModule,
+    WishlistModule,
+    ReviewsModule,
   ],
   controllers: [AppController],
   providers: [

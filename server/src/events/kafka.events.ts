@@ -3,7 +3,7 @@ import { OrderStatus } from '../generated/prisma/enums';
 export type OrderPlacedEvent = {
   orderId: string;
   orderNumber: string;
-  userId: string;
+  userId: string | null;
   total: number;
   items: {
     productId: string;

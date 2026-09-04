@@ -60,7 +60,9 @@ export function AdminOrdersPage() {
             <Link className="font-medium text-ticket" to={`/orders/${order.id}`}>
               {order.orderNumber}
             </Link>
-            <p className="mt-1 text-sm text-muted">{order.user.email}</p>
+            <p className="mt-1 text-sm text-muted">
+              {order.user?.email ?? order.guestEmail ?? 'Guest'}
+            </p>
             <p className="mt-2 font-semibold">{formatMoney(order.total)}</p>
             <label className="mt-3 flex items-center gap-2 text-sm">
               <FiEdit3 />
@@ -104,7 +106,9 @@ export function AdminOrdersPage() {
                     {order.orderNumber}
                   </Link>
                 </td>
-                <td className="px-4 py-3">{order.user.email}</td>
+                <td className="px-4 py-3">
+                  {order.user?.email ?? order.guestEmail ?? 'Guest'}
+                </td>
                 <td className="px-4 py-3">{formatMoney(order.total)}</td>
                 <td className="px-4 py-3">
                   <span

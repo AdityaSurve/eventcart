@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { api } from '../lib/api'
+import { api, getGuestId } from '../lib/api'
 import type { AuthResponse, User } from '../types'
 
 type AuthContextValue = {
@@ -21,6 +21,16 @@ type AuthContextValue = {
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null)
+
+async function mergeGuestCart() {
+  try {
+    await api.post('/cart/merge', undefined, {
+      headers: { 'X-Guest-Id': getGuestId() },
+    })
+  } catch {
+    // Guest cart may be empty; ignore merge failures.
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
@@ -54,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           password,
         })
         setUser(data.user)
+        await mergeGuestCart()
       },
       register: async (name, email, password) => {
         const { data } = await api.post<AuthResponse>('/auth/register', {
@@ -62,8 +73,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           password,
         })
         setUser(data.user)
+        await mergeGuestCart()
       },
-      loginWithUser: (next) => setUser(next),
+      loginWithUser: (next) => {
+        setUser(next)
+        void mergeGuestCart()
+      },
       refreshUser,
       logout: async () => {
         await api.post('/auth/logout')

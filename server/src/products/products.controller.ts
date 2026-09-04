@@ -51,6 +51,16 @@ export class ProductsController {
     return this.productsService.findAll(query);
   }
 
+  @Get('low-stock')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(Role.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'List low-stock products (admin)' })
+  @ApiOkResponse({ description: 'Products at or below threshold' })
+  lowStock() {
+    return this.productsService.findLowStock();
+  }
+
   @SkipThrottle()
   @Get('slug/:slug')
   @ApiOperation({ summary: 'Get a product by slug' })

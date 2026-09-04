@@ -4,6 +4,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Prisma } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -11,18 +12,11 @@ import { CreateProductDto } from './dto/products.create';
 import { ListProductsQueryDto } from './dto/products.query';
 import { UpdateProductDto } from './dto/products.update';
 
-type ProductRecord = {
-  id: string;
-  name: string;
-  slug: string;
-  description: string | null;
-  imageUrl: string | null;
-  price: Prisma.Decimal;
-  stock: number;
-  isActive: boolean;
-  createdAt: Date;
-  updatedAt: Date;
-};
+const productInclude = {
+  category: { select: { id: true, name: true, slug: true } },
+} satisfies Prisma.ProductInclude;
+
+type ProductRecord = Prisma.ProductGetPayload<{ include: typeof productInclude }>;
 
 @Injectable()
 export class ProductsService {
@@ -33,6 +27,7 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly redisService: RedisService,
+    private readonly configService: ConfigService,
   ) {}
 
   async create(dto: CreateProductDto) {
@@ -46,7 +41,9 @@ export class ProductsService {
           price: dto.price,
           stock: dto.stock ?? 0,
           isActive: dto.isActive ?? true,
+          categoryId: dto.categoryId,
         },
+        include: productInclude,
       });
 
       await this.invalidateListCache();
@@ -78,23 +75,29 @@ export class ProductsService {
   }
 
   async findOne(id: string) {
-    const product = await this.prisma.product.findUnique({ where: { id } });
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      include: productInclude,
+    });
 
     if (!product) {
       throw new NotFoundException(`Product with id "${id}" not found`);
     }
 
-    return this.toResponse(product);
+    return this.toResponse(product, await this.ratingFor(id));
   }
 
   async findBySlug(slug: string) {
-    const product = await this.prisma.product.findUnique({ where: { slug } });
+    const product = await this.prisma.product.findUnique({
+      where: { slug },
+      include: productInclude,
+    });
 
     if (!product) {
       throw new NotFoundException(`Product with slug "${slug}" not found`);
     }
 
-    return this.toResponse(product);
+    return this.toResponse(product, await this.ratingFor(product.id));
   }
 
   async update(id: string, dto: UpdateProductDto) {
@@ -111,11 +114,13 @@ export class ProductsService {
           ...(dto.price !== undefined && { price: dto.price }),
           ...(dto.stock !== undefined && { stock: dto.stock }),
           ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+          ...(dto.categoryId !== undefined && { categoryId: dto.categoryId }),
         },
+        include: productInclude,
       });
 
       await this.invalidateListCache();
-      return this.toResponse(product);
+      return this.toResponse(product, await this.ratingFor(id));
     } catch (error) {
       this.handlePrismaError(error, dto.slug);
     }
@@ -127,10 +132,32 @@ export class ProductsService {
     const product = await this.prisma.product.update({
       where: { id },
       data: { isActive: false },
+      include: productInclude,
     });
 
     await this.invalidateListCache();
     return this.toResponse(product);
+  }
+
+  async findLowStock() {
+    const threshold = Number(
+      this.configService.get<string>('LOW_STOCK_THRESHOLD') ?? 10,
+    );
+
+    const items = await this.prisma.product.findMany({
+      where: {
+        isActive: true,
+        stock: { lte: threshold },
+      },
+      orderBy: { stock: 'asc' },
+      include: productInclude,
+    });
+
+    return {
+      threshold,
+      count: items.length,
+      items: items.map((product) => this.toResponse(product)),
+    };
   }
 
   private async findAllFromDb(query: ListProductsQueryDto) {
@@ -148,21 +175,51 @@ export class ProductsService {
       where.OR = [
         { name: { contains: query.search, mode: 'insensitive' } },
         { slug: { contains: query.search, mode: 'insensitive' } },
+        { description: { contains: query.search, mode: 'insensitive' } },
       ];
     }
+
+    if (query.categoryId) {
+      where.categoryId = query.categoryId;
+    }
+
+    if (query.categorySlug) {
+      where.category = { slug: query.categorySlug };
+    }
+
+    if (query.minPrice !== undefined || query.maxPrice !== undefined) {
+      where.price = {
+        ...(query.minPrice !== undefined && { gte: query.minPrice }),
+        ...(query.maxPrice !== undefined && { lte: query.maxPrice }),
+      };
+    }
+
+    const orderBy: Prisma.ProductOrderByWithRelationInput =
+      query.sort === 'price_asc'
+        ? { price: 'asc' }
+        : query.sort === 'price_desc'
+          ? { price: 'desc' }
+          : query.sort === 'name'
+            ? { name: 'asc' }
+            : { createdAt: 'desc' };
 
     const [items, total] = await Promise.all([
       this.prisma.product.findMany({
         where,
         skip,
         take: limit,
-        orderBy: { createdAt: 'desc' },
+        orderBy,
+        include: productInclude,
       }),
       this.prisma.product.count({ where }),
     ]);
 
+    const ratings = await this.ratingsFor(items.map((item) => item.id));
+
     return {
-      items: items.map((product) => this.toResponse(product)),
+      items: items.map((product) =>
+        this.toResponse(product, ratings.get(product.id)),
+      ),
       meta: {
         total,
         page,
@@ -188,6 +245,11 @@ export class ProductsService {
       `limit=${query.limit ?? 20}`,
       `isActive=${query.isActive ?? 'all'}`,
       `search=${query.search ?? ''}`,
+      `categoryId=${query.categoryId ?? ''}`,
+      `categorySlug=${query.categorySlug ?? ''}`,
+      `minPrice=${query.minPrice ?? ''}`,
+      `maxPrice=${query.maxPrice ?? ''}`,
+      `sort=${query.sort ?? 'newest'}`,
     ];
 
     return `${this.listCachePrefix}${parts.join('&')}`;
@@ -198,11 +260,55 @@ export class ProductsService {
     this.logger.debug('Invalidated product list cache');
   }
 
-  private toResponse(product: ProductRecord) {
+  private async ratingFor(productId: string) {
+    const map = await this.ratingsFor([productId]);
+    return map.get(productId);
+  }
+
+  private async ratingsFor(productIds: string[]) {
+    if (!productIds.length) {
+      return new Map<string, { avgRating: number | null; reviewCount: number }>();
+    }
+
+    const grouped = await this.prisma.review.groupBy({
+      by: ['productId'],
+      where: { productId: { in: productIds } },
+      _avg: { rating: true },
+      _count: { rating: true },
+    });
+
+    return new Map(
+      grouped.map((row) => [
+        row.productId,
+        {
+          avgRating: row._avg.rating
+            ? Number(row._avg.rating.toFixed(2))
+            : null,
+          reviewCount: row._count.rating,
+        },
+      ]),
+    );
+  }
+
+  private toResponse(
+    product: ProductRecord,
+    rating?: { avgRating: number | null; reviewCount: number },
+  ) {
     return {
-      ...product,
+      id: product.id,
+      name: product.name,
+      slug: product.slug,
+      description: product.description,
       imageUrl: product.imageUrl ?? this.defaultImage(product.slug),
       price: product.price.toNumber(),
+      stock: product.stock,
+      isActive: product.isActive,
+      categoryId: product.categoryId,
+      category: product.category,
+      avgRating: rating?.avgRating ?? null,
+      reviewCount: rating?.reviewCount ?? 0,
+      createdAt: product.createdAt,
+      updatedAt: product.updatedAt,
     };
   }
 

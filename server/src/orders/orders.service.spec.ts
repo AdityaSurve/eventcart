@@ -39,7 +39,11 @@ describe('OrdersService', () => {
     paymentProvider: null,
     paymentRef: null,
     subtotal: new Prisma.Decimal('25.00'),
+    discount: new Prisma.Decimal('0'),
     total: new Prisma.Decimal('25.00'),
+    couponCode: null,
+    guestEmail: null,
+    guestName: null,
     userId: 'u1',
     createdAt: new Date(),
     updatedAt: new Date(),
@@ -89,7 +93,8 @@ describe('OrdersService', () => {
       fn(tx),
     );
 
-    const result = await service.create('u1', {
+    const result = await service.create({
+      userId: 'u1',
       items: [{ productId: 'p1', quantity: 2 }],
     });
 
@@ -110,7 +115,7 @@ describe('OrdersService', () => {
     prisma.product.findMany.mockResolvedValue([]);
 
     await expect(
-      service.create('u1', { items: [{ productId: 'missing', quantity: 1 }] }),
+      service.create({ userId: 'u1', items: [{ productId: 'missing', quantity: 1 }] }),
     ).rejects.toBeInstanceOf(BadRequestException);
   });
 
@@ -118,7 +123,7 @@ describe('OrdersService', () => {
     prisma.product.findMany.mockResolvedValue([{ ...product, isActive: false }]);
 
     await expect(
-      service.create('u1', { items: [{ productId: 'p1', quantity: 1 }] }),
+      service.create({ userId: 'u1', items: [{ productId: 'p1', quantity: 1 }] }),
     ).rejects.toThrow('not available');
   });
 
@@ -126,7 +131,7 @@ describe('OrdersService', () => {
     prisma.product.findMany.mockResolvedValue([{ ...product, stock: 1 }]);
 
     await expect(
-      service.create('u1', { items: [{ productId: 'p1', quantity: 5 }] }),
+      service.create({ userId: 'u1', items: [{ productId: 'p1', quantity: 5 }] }),
     ).rejects.toThrow('Insufficient stock');
   });
 
@@ -134,7 +139,8 @@ describe('OrdersService', () => {
     prisma.product.findMany.mockResolvedValue([product]);
 
     await expect(
-      service.create('u1', {
+      service.create({
+        userId: 'u1',
         items: [
           { productId: 'p1', quantity: 6 },
           { productId: 'p1', quantity: 5 },

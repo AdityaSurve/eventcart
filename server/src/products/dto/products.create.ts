@@ -72,4 +72,9 @@ export class CreateProductDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @ApiPropertyOptional({ example: 'clxyz...' })
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
 }

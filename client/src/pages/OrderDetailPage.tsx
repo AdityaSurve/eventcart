@@ -1,8 +1,12 @@
-import { Link } from 'react-router-dom'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { FiArrowLeft, FiXCircle } from 'react-icons/fi'
-import { useParams, useSearchParams } from 'react-router-dom'
-import { api, getErrorMessage } from '../lib/api'
+import { FiArrowLeft, FiDownload, FiXCircle } from 'react-icons/fi'
+import { useAuth } from '../hooks/useAuth'
+import {
+  api,
+  getErrorMessage,
+  guestEmailForOrder,
+} from '../lib/api'
 import { productImage, statusTone } from '../lib/media'
 import { formatMoney } from '../lib/money'
 import type { Order } from '../types'
@@ -10,11 +14,20 @@ import type { Order } from '../types'
 export function OrderDetailPage() {
   const { id } = useParams()
   const [params] = useSearchParams()
+  const { user } = useAuth()
   const queryClient = useQueryClient()
 
+  const guestEmail =
+    params.get('guestEmail') || (id ? guestEmailForOrder(id) : null) || undefined
+
   const orderQuery = useQuery({
-    queryKey: ['order', id],
-    queryFn: async () => (await api.get<Order>(`/orders/${id}`)).data,
+    queryKey: ['order', id, guestEmail],
+    queryFn: async () =>
+      (
+        await api.get<Order>(`/orders/${id}`, {
+          params: guestEmail ? { guestEmail } : undefined,
+        })
+      ).data,
     enabled: Boolean(id),
   })
 
@@ -28,6 +41,20 @@ export function OrderDetailPage() {
 
   const order = orderQuery.data
 
+  async function downloadReceipt() {
+    if (!id || !order) return
+    const { data } = await api.get<Blob>(`/orders/${id}/receipt.pdf`, {
+      responseType: 'blob',
+      params: guestEmail ? { guestEmail } : undefined,
+    })
+    const url = URL.createObjectURL(data)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `receipt-${order.orderNumber}.pdf`
+    anchor.click()
+    URL.revokeObjectURL(url)
+  }
+
   if (orderQuery.isLoading) {
     return <p className="text-muted">Loading order…</p>
   }
@@ -37,13 +64,21 @@ export function OrderDetailPage() {
   }
 
   const canCancel =
-    order.status === 'PENDING' || order.status === 'CONFIRMED'
+    Boolean(user) &&
+    order.userId === user?.id &&
+    (order.status === 'PENDING' || order.status === 'CONFIRMED')
 
   return (
     <div className="surface rounded-[1.75rem] p-6 sm:p-8">
-      <Link to="/orders" className="inline-flex items-center gap-2 text-sm text-ticket">
-        <FiArrowLeft /> All orders
-      </Link>
+      {user ? (
+        <Link to="/orders" className="inline-flex items-center gap-2 text-sm text-ticket">
+          <FiArrowLeft /> All orders
+        </Link>
+      ) : (
+        <Link to="/" className="inline-flex items-center gap-2 text-sm text-ticket">
+          <FiArrowLeft /> Back to shop
+        </Link>
+      )}
       {params.get('paid') ? (
         <p className="mt-3 text-sm text-pine">Payment received. Status updates live.</p>
       ) : null}
@@ -64,19 +99,35 @@ export function OrderDetailPage() {
               </span>
             ) : null}
           </div>
-          <p className="mt-3 font-semibold">Total {formatMoney(order.total)}</p>
+          <p className="mt-3 text-sm text-muted">
+            Subtotal {formatMoney(order.subtotal)}
+            {(order.discount ?? 0) > 0
+              ? ` · Discount −${formatMoney(order.discount ?? 0)}`
+              : ''}
+          </p>
+          <p className="mt-1 font-semibold">Total {formatMoney(order.total)}</p>
         </div>
-        {canCancel ? (
+        <div className="flex flex-wrap gap-2">
           <button
             type="button"
-            disabled={cancel.isPending}
-            onClick={() => cancel.mutate()}
             className="btn-ghost text-sm"
+            onClick={() => void downloadReceipt()}
           >
-            <FiXCircle />
-            {cancel.isPending ? 'Cancelling…' : 'Cancel order'}
+            <FiDownload />
+            Download receipt
           </button>
-        ) : null}
+          {canCancel ? (
+            <button
+              type="button"
+              disabled={cancel.isPending}
+              onClick={() => cancel.mutate()}
+              className="btn-ghost text-sm"
+            >
+              <FiXCircle />
+              {cancel.isPending ? 'Cancelling…' : 'Cancel order'}
+            </button>
+          ) : null}
+        </div>
       </div>
       {cancel.isError ? (
         <p className="mt-3 text-sm text-red-600">{getErrorMessage(cancel.error)}</p>

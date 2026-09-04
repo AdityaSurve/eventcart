@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
+import PDFDocument from 'pdfkit';
 import { KafkaProducerService } from '../events/kafka-producer.service';
 import {
   OrderPlacedEvent,
@@ -12,7 +13,6 @@ import {
 } from '../events/kafka.events';
 import { OrderStatus, PaymentStatus, Prisma, Role } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateOrderDto } from './dto/create-order.dto';
 import { ListOrdersQueryDto } from './dto/list-orders.query.dto';
 import { UpdateOrderStatusDto } from './dto/update-order-status.dto';
 import { OrdersGateway } from './orders.gateway';
@@ -42,6 +42,15 @@ type OrderWithRelations = Prisma.OrderGetPayload<{
   include: typeof orderInclude;
 }>;
 
+export type CreateOrderInput = {
+  userId?: string | null;
+  guestEmail?: string;
+  guestName?: string;
+  couponCode?: string | null;
+  discount?: number;
+  items: { productId: string; quantity: number }[];
+};
+
 @Injectable()
 export class OrdersService {
   private readonly logger = new Logger(OrdersService.name);
@@ -52,8 +61,14 @@ export class OrdersService {
     private readonly ordersGateway: OrdersGateway,
   ) {}
 
-  async create(userId: string, dto: CreateOrderDto) {
-    const mergedItems = this.mergeItems(dto.items);
+  async create(input: CreateOrderInput) {
+    if (!input.userId && (!input.guestEmail || !input.guestName)) {
+      throw new BadRequestException(
+        'Either a logged-in user or guestName/guestEmail is required',
+      );
+    }
+
+    const mergedItems = this.mergeItems(input.items);
     const productIds = [...mergedItems.keys()];
 
     const products = await this.prisma.product.findMany({
@@ -101,6 +116,10 @@ export class OrdersService {
       });
     }
 
+    const discount = new Prisma.Decimal(
+      Math.max(0, Number((input.discount ?? 0).toFixed(2))),
+    );
+    const total = Prisma.Decimal.max(subtotal.sub(discount), new Prisma.Decimal(0));
     const orderNumber = this.generateOrderNumber();
 
     const order = await this.prisma.$transaction(async (tx) => {
@@ -109,8 +128,12 @@ export class OrdersService {
           orderNumber,
           status: OrderStatus.PENDING,
           subtotal,
-          total: subtotal,
-          userId,
+          discount,
+          total,
+          couponCode: input.couponCode ?? null,
+          userId: input.userId ?? null,
+          guestEmail: input.guestEmail?.toLowerCase() ?? null,
+          guestName: input.guestName ?? null,
           items: {
             create: lineItems,
           },
@@ -345,6 +368,74 @@ export class OrdersService {
     return response;
   }
 
+  async buildReceiptPdf(orderId: string): Promise<Buffer> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      include: orderInclude,
+    });
+
+    if (!order) {
+      throw new NotFoundException(`Order with id "${orderId}" not found`);
+    }
+
+    const response = this.toResponse(order);
+
+    return new Promise((resolve, reject) => {
+      const doc = new PDFDocument({ margin: 50 });
+      const chunks: Buffer[] = [];
+
+      doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+      doc.on('end', () => resolve(Buffer.concat(chunks)));
+      doc.on('error', reject);
+
+      doc.fontSize(20).text('EventCart Receipt', { align: 'left' });
+      doc.moveDown(0.5);
+      doc.fontSize(11).fillColor('#333');
+      doc.text(`Order: ${response.orderNumber}`);
+      doc.text(`Date: ${new Date(response.createdAt).toLocaleString()}`);
+      doc.text(`Status: ${response.status}`);
+      doc.text(`Payment: ${response.paymentStatus}`);
+      if (response.paymentProvider) {
+        doc.text(`Provider: ${response.paymentProvider}`);
+      }
+
+      const customer =
+        response.user?.name ||
+        response.guestName ||
+        'Guest';
+      const email =
+        response.user?.email ||
+        response.guestEmail ||
+        '';
+      doc.text(`Customer: ${customer}`);
+      if (email) {
+        doc.text(`Email: ${email}`);
+      }
+
+      doc.moveDown();
+      doc.fontSize(13).text('Items');
+      doc.moveDown(0.3);
+      doc.fontSize(10);
+
+      for (const item of response.items) {
+        doc.text(
+          `${item.product.name}  x${item.quantity}  @ $${item.unitPrice.toFixed(2)}  = $${item.lineTotal.toFixed(2)}`,
+        );
+      }
+
+      doc.moveDown();
+      doc.text(`Subtotal: $${response.subtotal.toFixed(2)}`);
+      if (response.discount > 0) {
+        doc.text(
+          `Discount${response.couponCode ? ` (${response.couponCode})` : ''}: -$${response.discount.toFixed(2)}`,
+        );
+      }
+      doc.fontSize(12).text(`Total: $${response.total.toFixed(2)}`);
+
+      doc.end();
+    });
+  }
+
   private publishOrderPlaced(event: OrderPlacedEvent) {
     void this.kafkaProducer
       .publish(this.kafkaProducer.topics.ORDER_PLACED, event.orderId, event)
@@ -367,7 +458,7 @@ export class OrdersService {
       });
   }
 
-  private mergeItems(items: CreateOrderDto['items']) {
+  private mergeItems(items: CreateOrderInput['items']) {
     const merged = new Map<string, number>();
 
     for (const item of items) {
@@ -387,6 +478,7 @@ export class OrdersService {
     return {
       ...order,
       subtotal: order.subtotal.toNumber(),
+      discount: order.discount.toNumber(),
       total: order.total.toNumber(),
       items: order.items.map((item) => ({
         ...item,

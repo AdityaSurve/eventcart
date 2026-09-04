@@ -3,18 +3,20 @@ import { Link, NavLink, Outlet } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
   FiBarChart2,
+  FiHeart,
   FiLogOut,
   FiMenu,
   FiPackage,
   FiShoppingBag,
   FiShoppingCart,
+  FiTag,
   FiUser,
   FiX,
 } from 'react-icons/fi'
 import { useAuth } from '../hooks/useAuth'
 import { useOrderRealtime } from '../hooks/useOrderRealtime'
 import { api } from '../lib/api'
-import type { Cart } from '../types'
+import type { Cart, LowStockResponse } from '../types'
 
 function navClass({ isActive }: { isActive: boolean }) {
   return isActive
@@ -30,11 +32,17 @@ export function Layout() {
   const cartQuery = useQuery({
     queryKey: ['cart'],
     queryFn: async () => (await api.get<Cart>('/cart')).data,
-    enabled: Boolean(user),
+  })
+
+  const lowStockQuery = useQuery({
+    queryKey: ['low-stock'],
+    queryFn: async () => (await api.get<LowStockResponse>('/products/low-stock')).data,
+    enabled: user?.role === 'ADMIN',
   })
 
   const cartCount =
     cartQuery.data?.items.reduce((sum, item) => sum + item.quantity, 0) ?? 0
+  const lowStockCount = lowStockQuery.data?.count ?? 0
 
   const links = (
     <>
@@ -42,25 +50,48 @@ export function Layout() {
         <FiPackage />
         Shop
       </NavLink>
+      <NavLink to="/cart" className={navClass} onClick={() => setOpen(false)}>
+        <FiShoppingCart />
+        Cart{cartCount > 0 ? ` (${cartCount})` : ''}
+      </NavLink>
       {user ? (
         <>
-          <NavLink to="/cart" className={navClass} onClick={() => setOpen(false)}>
-            <FiShoppingCart />
-            Cart{cartCount > 0 ? ` (${cartCount})` : ''}
+          <NavLink to="/wishlist" className={navClass} onClick={() => setOpen(false)}>
+            <FiHeart />
+            Wishlist
           </NavLink>
           <NavLink to="/orders" className={navClass} onClick={() => setOpen(false)}>
             <FiShoppingBag />
             Orders
           </NavLink>
           {user.role === 'ADMIN' ? (
-            <NavLink
-              to="/admin/analytics"
-              className={navClass}
-              onClick={() => setOpen(false)}
-            >
-              <FiBarChart2 />
-              Analytics
-            </NavLink>
+            <>
+              <NavLink
+                to="/admin/analytics"
+                className={navClass}
+                onClick={() => setOpen(false)}
+              >
+                <FiBarChart2 />
+                Analytics
+              </NavLink>
+              <NavLink
+                to="/admin/coupons"
+                className={navClass}
+                onClick={() => setOpen(false)}
+              >
+                <FiTag />
+                Coupons
+              </NavLink>
+              <NavLink
+                to="/admin/products"
+                className={navClass}
+                onClick={() => setOpen(false)}
+              >
+                <FiPackage />
+                Products
+                {lowStockCount > 0 ? ` (${lowStockCount})` : ''}
+              </NavLink>
+            </>
           ) : null}
           <NavLink to="/account" className={navClass} onClick={() => setOpen(false)}>
             <FiUser />

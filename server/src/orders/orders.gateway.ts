@@ -14,7 +14,7 @@ import { Role } from '../generated/prisma/enums';
 type OrderRealtimePayload = {
   orderId: string;
   orderNumber: string;
-  userId: string;
+  userId: string | null;
   status: string;
   previousStatus?: string;
   paymentStatus?: string;
@@ -58,7 +58,9 @@ export class OrdersGateway implements OnGatewayConnection {
   }
 
   emitOrderUpdated(payload: OrderRealtimePayload) {
-    this.server.to(`user:${payload.userId}`).emit('order.updated', payload);
+    if (payload.userId) {
+      this.server.to(`user:${payload.userId}`).emit('order.updated', payload);
+    }
     this.server.to('admins').emit('order.updated', payload);
   }
 

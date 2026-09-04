@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, getErrorMessage } from '../lib/api'
 import { formatMoney } from '../lib/money'
-import type { Paginated, Product } from '../types'
+import type { Category, LowStockResponse, Paginated, Product } from '../types'
 
 export function AdminProductsPage() {
   const queryClient = useQueryClient()
@@ -11,12 +11,23 @@ export function AdminProductsPage() {
   const [slug, setSlug] = useState('')
   const [price, setPrice] = useState('19.99')
   const [stock, setStock] = useState('20')
+  const [categoryId, setCategoryId] = useState('')
   const [error, setError] = useState('')
 
   const productsQuery = useQuery({
     queryKey: ['admin-products'],
     queryFn: async () =>
       (await api.get<Paginated<Product>>('/products', { params: { limit: 50 } })).data,
+  })
+
+  const categoriesQuery = useQuery({
+    queryKey: ['categories'],
+    queryFn: async () => (await api.get<Category[]>('/categories')).data,
+  })
+
+  const lowStockQuery = useQuery({
+    queryKey: ['low-stock'],
+    queryFn: async () => (await api.get<LowStockResponse>('/products/low-stock')).data,
   })
 
   const createProduct = useMutation({
@@ -26,6 +37,7 @@ export function AdminProductsPage() {
         slug,
         price: Number(price),
         stock: Number(stock),
+        categoryId: categoryId || undefined,
       })
     },
     onSuccess: async () => {
@@ -34,6 +46,7 @@ export function AdminProductsPage() {
       setError('')
       await queryClient.invalidateQueries({ queryKey: ['admin-products'] })
       await queryClient.invalidateQueries({ queryKey: ['products'] })
+      await queryClient.invalidateQueries({ queryKey: ['low-stock'] })
     },
     onError: (err) => setError(getErrorMessage(err)),
   })
@@ -43,13 +56,18 @@ export function AdminProductsPage() {
     createProduct.mutate()
   }
 
+  const lowStock = lowStockQuery.data
+
   return (
     <div>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-3xl font-semibold">Admin products</h1>
         <div className="flex gap-4 text-sm">
           <Link to="/admin/analytics" className="text-ticket">
             Analytics
+          </Link>
+          <Link to="/admin/coupons" className="text-ticket">
+            Coupons
           </Link>
           <Link to="/admin/orders" className="text-ticket">
             Orders
@@ -57,9 +75,17 @@ export function AdminProductsPage() {
         </div>
       </div>
 
+      {lowStock && lowStock.count > 0 ? (
+        <div className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Low stock alert: {lowStock.count} product
+          {lowStock.count === 1 ? '' : 's'} at or below {lowStock.threshold} units —{' '}
+          {lowStock.items.map((item) => `${item.name} (${item.stock})`).join(', ')}
+        </div>
+      ) : null}
+
       <form
         onSubmit={onSubmit}
-        className="mt-6 grid gap-3 rounded-2xl border border-stone-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-5"
+        className="mt-6 grid gap-3 rounded-2xl border border-stone-200 bg-white p-4 sm:grid-cols-2 lg:grid-cols-6"
       >
         <input
           className="rounded-lg border border-stone-300 px-3 py-2"
@@ -92,6 +118,18 @@ export function AdminProductsPage() {
           onChange={(e) => setStock(e.target.value)}
           required
         />
+        <select
+          className="rounded-lg border border-stone-300 px-3 py-2"
+          value={categoryId}
+          onChange={(e) => setCategoryId(e.target.value)}
+        >
+          <option value="">No category</option>
+          {(categoriesQuery.data ?? []).map((category) => (
+            <option key={category.id} value={category.id}>
+              {category.name}
+            </option>
+          ))}
+        </select>
         <button
           type="submit"
           disabled={createProduct.isPending}
@@ -106,6 +144,7 @@ export function AdminProductsPage() {
         <thead className="bg-stone-50">
           <tr>
             <th className="px-3 py-2">Name</th>
+            <th className="px-3 py-2">Category</th>
             <th className="px-3 py-2">Price</th>
             <th className="px-3 py-2">Stock</th>
             <th className="px-3 py-2">Active</th>
@@ -113,8 +152,14 @@ export function AdminProductsPage() {
         </thead>
         <tbody>
           {(productsQuery.data?.items ?? []).map((product) => (
-            <tr key={product.id} className="border-t border-stone-100">
+            <tr
+              key={product.id}
+              className={`border-t border-stone-100 ${
+                lowStock && product.stock <= lowStock.threshold ? 'bg-amber-50' : ''
+              }`}
+            >
               <td className="px-3 py-2">{product.name}</td>
+              <td className="px-3 py-2">{product.category?.name ?? '—'}</td>
               <td className="px-3 py-2">{formatMoney(product.price)}</td>
               <td className="px-3 py-2">{product.stock}</td>
               <td className="px-3 py-2">{product.isActive ? 'Yes' : 'No'}</td>

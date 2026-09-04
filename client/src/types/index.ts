@@ -24,6 +24,27 @@ export type AuthResponse = {
   user: User
 }
 
+export type Category = {
+  id: string
+  name: string
+  slug: string
+  _count?: { products: number }
+}
+
+export type CouponType = 'PERCENT' | 'FIXED'
+
+export type Coupon = {
+  id: string
+  code: string
+  type: CouponType
+  value: number
+  minSubtotal: number | null
+  maxUses: number | null
+  usedCount: number
+  expiresAt: string | null
+  isActive: boolean
+}
+
 export type AnalyticsOverview = {
   kpis: {
     orders: number
@@ -71,6 +92,10 @@ export type Product = {
   price: number
   stock: number
   isActive: boolean
+  categoryId?: string | null
+  category?: { id: string; name: string; slug: string } | null
+  avgRating?: number | null
+  reviewCount?: number
   createdAt: string
   updatedAt: string
 }
@@ -102,6 +127,15 @@ export type CartItem = {
 export type Cart = {
   items: CartItem[]
   subtotal: number
+  discount?: number
+  total?: number
+  couponCode?: string | null
+  coupon?: {
+    code: string
+    type: string
+    value: number
+    discount: number
+  } | null
 }
 
 export type OrderItem = {
@@ -140,15 +174,57 @@ export type Order = {
   paymentProvider?: string | null
   paymentRef?: string | null
   subtotal: number
+  discount?: number
   total: number
-  userId: string
+  couponCode?: string | null
+  guestEmail?: string | null
+  guestName?: string | null
+  userId: string | null
   createdAt: string
   updatedAt: string
   user: {
     id: string
     name: string
     email: string
-  }
+  } | null
   items: OrderItem[]
   statusHistory: OrderStatusHistory[]
+}
+
+export type Review = {
+  id: string
+  rating: number
+  body: string | null
+  createdAt: string
+  updatedAt: string
+  user: { id: string; name: string }
+}
+
+export type ReviewsResponse = {
+  items: Review[]
+  avgRating: number | null
+  reviewCount: number
+}
+
+export type WishlistResponse = {
+  items: {
+    id: string
+    productId: string
+    createdAt: string
+    product: {
+      id: string
+      name: string
+      slug: string
+      price: number
+      stock: number
+      isActive: boolean
+      imageUrl?: string | null
+    }
+  }[]
+}
+
+export type LowStockResponse = {
+  threshold: number
+  count: number
+  items: Product[]
 }

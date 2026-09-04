@@ -3,9 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { CouponsService } from '../coupons/coupons.service';
+import { CartOwner } from '../common/decorators/cart-owner.decorator';
+import { OrdersService } from '../orders/orders.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
-import { OrdersService } from '../orders/orders.service';
 import { AddCartItemDto } from './dto/add-cart-item.dto';
 import { UpdateCartItemDto } from './dto/update-cart-item.dto';
 
@@ -14,20 +16,26 @@ type CartItem = {
   quantity: number;
 };
 
+type CartState = {
+  items: CartItem[];
+  couponCode: string | null;
+};
+
 @Injectable()
 export class CartService {
   constructor(
     private readonly redisService: RedisService,
     private readonly prisma: PrismaService,
     private readonly ordersService: OrdersService,
+    private readonly couponsService: CouponsService,
   ) {}
 
-  async getCart(userId: string) {
-    const items = await this.getRawItems(userId);
-    return this.enrichCart(items);
+  async getCart(owner: CartOwner) {
+    const state = await this.getState(owner);
+    return this.enrichCart(state);
   }
 
-  async addItem(userId: string, dto: AddCartItemDto) {
+  async addItem(owner: CartOwner, dto: AddCartItemDto) {
     const product = await this.prisma.product.findUnique({
       where: { id: dto.productId },
     });
@@ -36,93 +44,203 @@ export class CartService {
       throw new NotFoundException('Product not found or unavailable');
     }
 
-    const items = await this.getRawItems(userId);
-    const existing = items.find((item) => item.productId === dto.productId);
+    const state = await this.getState(owner);
+    const existing = state.items.find((item) => item.productId === dto.productId);
 
     if (existing) {
       existing.quantity += dto.quantity;
     } else {
-      items.push({ productId: dto.productId, quantity: dto.quantity });
+      state.items.push({ productId: dto.productId, quantity: dto.quantity });
     }
 
-    await this.saveItems(userId, items);
-    return this.enrichCart(items);
+    await this.saveState(owner, state);
+    return this.enrichCart(state);
   }
 
   async updateItem(
-    userId: string,
+    owner: CartOwner,
     productId: string,
     dto: UpdateCartItemDto,
   ) {
-    const items = await this.getRawItems(userId);
-    const index = items.findIndex((item) => item.productId === productId);
+    const state = await this.getState(owner);
+    const index = state.items.findIndex((item) => item.productId === productId);
 
     if (index === -1) {
       throw new NotFoundException('Item not found in cart');
     }
 
     if (dto.quantity === 0) {
-      items.splice(index, 1);
+      state.items.splice(index, 1);
     } else {
-      items[index].quantity = dto.quantity;
+      state.items[index].quantity = dto.quantity;
     }
 
-    await this.saveItems(userId, items);
-    return this.enrichCart(items);
+    await this.saveState(owner, state);
+    return this.enrichCart(state);
   }
 
-  async removeItem(userId: string, productId: string) {
-    const items = await this.getRawItems(userId);
-    const nextItems = items.filter((item) => item.productId !== productId);
+  async removeItem(owner: CartOwner, productId: string) {
+    const state = await this.getState(owner);
+    const nextItems = state.items.filter((item) => item.productId !== productId);
 
-    if (nextItems.length === items.length) {
+    if (nextItems.length === state.items.length) {
       throw new NotFoundException('Item not found in cart');
     }
 
-    await this.saveItems(userId, nextItems);
-    return this.enrichCart(nextItems);
+    state.items = nextItems;
+    await this.saveState(owner, state);
+    return this.enrichCart(state);
   }
 
-  async clearCart(userId: string) {
-    await this.redisService.del(this.cartKey(userId));
-    return { items: [], subtotal: 0 };
+  async clearCart(owner: CartOwner) {
+    await this.redisService.del(this.cartKey(owner));
+    if (owner.kind === 'user') {
+      await this.redisService.del(`cart:${owner.id}`);
+    }
+    return {
+      items: [],
+      subtotal: 0,
+      discount: 0,
+      total: 0,
+      couponCode: null,
+      coupon: null,
+    };
   }
 
-  async checkout(userId: string) {
-    const items = await this.getRawItems(userId);
+  async applyCoupon(owner: CartOwner, code: string) {
+    const state = await this.getState(owner);
+    const enriched = await this.enrichCart({ ...state, couponCode: null });
+    await this.couponsService.validate(code, enriched.subtotal);
+    state.couponCode = code.trim().toUpperCase();
+    await this.saveState(owner, state);
+    return this.enrichCart(state);
+  }
 
-    if (!items.length) {
+  async removeCoupon(owner: CartOwner) {
+    const state = await this.getState(owner);
+    state.couponCode = null;
+    await this.saveState(owner, state);
+    return this.enrichCart(state);
+  }
+
+  async checkout(
+    owner: CartOwner,
+    guest?: { guestName?: string; guestEmail?: string },
+  ) {
+    const state = await this.getState(owner);
+
+    if (!state.items.length) {
       throw new BadRequestException('Cart is empty');
     }
 
-    const order = await this.ordersService.create(userId, { items });
-    await this.clearCart(userId);
+    if (owner.kind === 'guest') {
+      if (!guest?.guestEmail?.trim() || !guest?.guestName?.trim()) {
+        throw new BadRequestException(
+          'guestName and guestEmail are required for guest checkout',
+        );
+      }
+    }
 
+    const cart = await this.enrichCart(state);
+
+    const order = await this.ordersService.create({
+      userId: owner.kind === 'user' ? owner.id : null,
+      guestEmail:
+        owner.kind === 'guest' ? guest!.guestEmail!.trim().toLowerCase() : undefined,
+      guestName: owner.kind === 'guest' ? guest!.guestName!.trim() : undefined,
+      couponCode: cart.couponCode,
+      discount: cart.discount,
+      items: state.items,
+    });
+
+    if (cart.couponCode) {
+      await this.couponsService.redeem(cart.couponCode);
+    }
+
+    await this.clearCart(owner);
     return order;
   }
 
-  private async getRawItems(userId: string): Promise<CartItem[]> {
-    const raw = await this.redisService.get(this.cartKey(userId));
+  async mergeGuestIntoUser(guestId: string, userId: string) {
+    const guestOwner: CartOwner = { kind: 'guest', id: guestId };
+    const userOwner: CartOwner = { kind: 'user', id: userId };
+    const guestState = await this.getState(guestOwner);
 
-    if (!raw) {
-      return [];
+    if (!guestState.items.length && !guestState.couponCode) {
+      return this.getCart(userOwner);
     }
 
-    return JSON.parse(raw) as CartItem[];
+    const userState = await this.getState(userOwner);
+
+    for (const guestItem of guestState.items) {
+      const existing = userState.items.find(
+        (item) => item.productId === guestItem.productId,
+      );
+      if (existing) {
+        existing.quantity += guestItem.quantity;
+      } else {
+        userState.items.push({ ...guestItem });
+      }
+    }
+
+    if (guestState.couponCode && !userState.couponCode) {
+      userState.couponCode = guestState.couponCode;
+    }
+
+    await this.saveState(userOwner, userState);
+    await this.redisService.del(this.cartKey(guestOwner));
+    return this.enrichCart(userState);
   }
 
-  private async saveItems(userId: string, items: CartItem[]) {
-    await this.redisService.set(this.cartKey(userId), JSON.stringify(items));
+  private async getState(owner: CartOwner): Promise<CartState> {
+    const raw = await this.redisService.get(this.cartKey(owner));
+
+    if (!raw && owner.kind === 'user') {
+      const legacy = await this.redisService.get(`cart:${owner.id}`);
+      if (legacy) {
+        return this.parseState(legacy);
+      }
+    }
+
+    if (!raw) {
+      return { items: [], couponCode: null };
+    }
+
+    return this.parseState(raw);
   }
 
-  private async enrichCart(items: CartItem[]) {
-    if (!items.length) {
-      return { items: [], subtotal: 0 };
+  private parseState(raw: string): CartState {
+    const parsed = JSON.parse(raw) as CartItem[] | CartState;
+
+    if (Array.isArray(parsed)) {
+      return { items: parsed, couponCode: null };
+    }
+
+    return {
+      items: parsed.items ?? [],
+      couponCode: parsed.couponCode ?? null,
+    };
+  }
+
+  private async saveState(owner: CartOwner, state: CartState) {
+    await this.redisService.set(this.cartKey(owner), JSON.stringify(state));
+  }
+
+  private async enrichCart(state: CartState) {
+    if (!state.items.length) {
+      return {
+        items: [],
+        subtotal: 0,
+        discount: 0,
+        total: 0,
+        couponCode: null,
+        coupon: null,
+      };
     }
 
     const products = await this.prisma.product.findMany({
       where: {
-        id: { in: items.map((item) => item.productId) },
+        id: { in: state.items.map((item) => item.productId) },
         isActive: true,
       },
     });
@@ -130,7 +248,7 @@ export class CartService {
     const productMap = new Map(products.map((product) => [product.id, product]));
 
     let subtotal = 0;
-    const enrichedItems = items
+    const enrichedItems = state.items
       .map((item) => {
         const product = productMap.get(item.productId);
 
@@ -160,10 +278,45 @@ export class CartService {
       })
       .filter((item) => item !== null);
 
-    return { items: enrichedItems, subtotal };
+    let discount = 0;
+    let coupon: {
+      code: string;
+      type: string;
+      value: number;
+      discount: number;
+    } | null = null;
+
+    if (state.couponCode) {
+      try {
+        const validated = await this.couponsService.validate(
+          state.couponCode,
+          subtotal,
+        );
+        discount = validated.discount;
+        coupon = {
+          code: validated.code,
+          type: validated.type,
+          value: validated.value,
+          discount: validated.discount,
+        };
+      } catch {
+        coupon = null;
+      }
+    }
+
+    const total = Math.max(0, Number((subtotal - discount).toFixed(2)));
+
+    return {
+      items: enrichedItems,
+      subtotal: Number(subtotal.toFixed(2)),
+      discount,
+      total,
+      couponCode: coupon?.code ?? null,
+      coupon,
+    };
   }
 
-  private cartKey(userId: string) {
-    return `cart:${userId}`;
+  private cartKey(owner: CartOwner) {
+    return `cart:${owner.kind}:${owner.id}`;
   }
 }

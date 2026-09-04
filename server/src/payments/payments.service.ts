@@ -6,7 +6,9 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { randomBytes } from 'node:crypto';
 import Stripe from 'stripe';
+import { CartOwner } from '../common/decorators/cart-owner.decorator';
 import { CartService } from '../cart/cart.service';
+import { CouponsService } from '../coupons/coupons.service';
 import { OrdersService } from '../orders/orders.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RedisService } from '../redis/redis.service';
@@ -19,6 +21,7 @@ export class PaymentsService {
     private readonly configService: ConfigService,
     private readonly cartService: CartService,
     private readonly ordersService: OrdersService,
+    private readonly couponsService: CouponsService,
     private readonly prisma: PrismaService,
     private readonly redis: RedisService,
   ) {
@@ -42,40 +45,74 @@ export class PaymentsService {
     );
   }
 
-  async demoCheckout(userId: string) {
-    const cart = await this.cartService.getCart(userId);
+  async demoCheckout(
+    owner: CartOwner,
+    guest?: { guestName?: string; guestEmail?: string },
+  ) {
+    const cart = await this.cartService.getCart(owner);
 
     if (!cart.items.length) {
       throw new BadRequestException('Cart is empty');
     }
 
-    const order = await this.ordersService.create(userId, {
+    if (owner.kind === 'guest') {
+      if (!guest?.guestEmail?.trim() || !guest?.guestName?.trim()) {
+        throw new BadRequestException(
+          'guestName and guestEmail are required for guest checkout',
+        );
+      }
+    }
+
+    const order = await this.ordersService.create({
+      userId: owner.kind === 'user' ? owner.id : null,
+      guestEmail:
+        owner.kind === 'guest'
+          ? guest!.guestEmail!.trim().toLowerCase()
+          : undefined,
+      guestName: owner.kind === 'guest' ? guest!.guestName!.trim() : undefined,
+      couponCode: cart.couponCode,
+      discount: cart.discount,
       items: cart.items.map((item) => ({
         productId: item.productId,
         quantity: item.quantity,
       })),
     });
 
+    if (cart.couponCode) {
+      await this.couponsService.redeem(cart.couponCode);
+    }
+
     const paid = await this.ordersService.markPaid(order.id, {
       provider: 'DEMO',
       paymentRef: `demo_${randomBytes(6).toString('hex')}`,
     });
 
-    await this.cartService.clearCart(userId);
+    await this.cartService.clearCart(owner);
     return paid;
   }
 
-  async createStripeCheckoutSession(userId: string) {
+  async createStripeCheckoutSession(
+    owner: CartOwner,
+    guest?: { guestName?: string; guestEmail?: string },
+  ) {
     if (!this.stripe) {
       throw new ServiceUnavailableException(
         'Stripe is not configured. Set STRIPE_SECRET_KEY or use demo checkout.',
       );
     }
 
-    const cart = await this.cartService.getCart(userId);
+    const cart = await this.cartService.getCart(owner);
 
     if (!cart.items.length) {
       throw new BadRequestException('Cart is empty');
+    }
+
+    if (owner.kind === 'guest') {
+      if (!guest?.guestEmail?.trim() || !guest?.guestName?.trim()) {
+        throw new BadRequestException(
+          'guestName and guestEmail are required for guest checkout',
+        );
+      }
     }
 
     const apiUrl = this.configService.get<string>(
@@ -83,29 +120,57 @@ export class PaymentsService {
       'http://localhost:3000',
     );
 
-    const session = await this.stripe.checkout.sessions.create({
-      mode: 'payment',
-      success_url: `${apiUrl}/payments/stripe/success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${this.frontendUrl()}/cart?cancelled=1`,
-      line_items: cart.items.map((item) => ({
+    const lineItems = cart.items.map((item) => {
+      let unitAmount = Math.round(item.unitPrice * 100);
+      if (cart.discount > 0 && cart.subtotal > 0) {
+        const share = item.lineTotal / cart.subtotal;
+        const itemDiscount = cart.discount * share;
+        unitAmount = Math.max(
+          0,
+          Math.round(((item.lineTotal - itemDiscount) / item.quantity) * 100),
+        );
+      }
+      return {
         quantity: item.quantity,
         price_data: {
           currency: 'usd',
-          unit_amount: Math.round(item.unitPrice * 100),
+          unit_amount: unitAmount,
           product_data: {
             name: item.product.name,
           },
         },
-      })),
+      };
+    });
+
+    const session = await this.stripe.checkout.sessions.create({
+      mode: 'payment',
+      success_url: `${apiUrl}/payments/stripe/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${this.frontendUrl()}/cart?cancelled=1`,
+      customer_email:
+        owner.kind === 'guest' ? guest!.guestEmail!.trim().toLowerCase() : undefined,
+      line_items: lineItems,
       metadata: {
-        userId,
+        ownerKind: owner.kind,
+        ownerId: owner.id,
+        guestEmail:
+          owner.kind === 'guest' ? guest!.guestEmail!.trim().toLowerCase() : '',
+        guestName: owner.kind === 'guest' ? guest!.guestName!.trim() : '',
+        couponCode: cart.couponCode ?? '',
+        discount: String(cart.discount ?? 0),
       },
     });
 
     await this.redis.set(
       `stripe:session:${session.id}`,
       JSON.stringify({
-        userId,
+        owner,
+        guestEmail:
+          owner.kind === 'guest'
+            ? guest!.guestEmail!.trim().toLowerCase()
+            : undefined,
+        guestName: owner.kind === 'guest' ? guest!.guestName!.trim() : undefined,
+        couponCode: cart.couponCode,
+        discount: cart.discount,
         items: cart.items.map((item) => ({
           productId: item.productId,
           quantity: item.quantity,
@@ -133,14 +198,17 @@ export class PaymentsService {
     }
 
     const cached = await this.redis.get(`stripe:session:${sessionId}`);
-    const userId = session.metadata?.userId;
 
-    if (!userId || !cached) {
+    if (!cached) {
       throw new BadRequestException('Checkout session expired or invalid');
     }
 
     const payload = JSON.parse(cached) as {
-      userId: string;
+      owner: CartOwner;
+      guestEmail?: string;
+      guestName?: string;
+      couponCode?: string | null;
+      discount?: number;
       items: { productId: string; quantity: number }[];
     };
 
@@ -152,16 +220,25 @@ export class PaymentsService {
       return this.ordersService.findOne(existing.id);
     }
 
-    const order = await this.ordersService.create(payload.userId, {
+    const order = await this.ordersService.create({
+      userId: payload.owner.kind === 'user' ? payload.owner.id : null,
+      guestEmail: payload.guestEmail,
+      guestName: payload.guestName,
+      couponCode: payload.couponCode,
+      discount: payload.discount ?? 0,
       items: payload.items,
     });
+
+    if (payload.couponCode) {
+      await this.couponsService.redeem(payload.couponCode);
+    }
 
     const paid = await this.ordersService.markPaid(order.id, {
       provider: 'STRIPE',
       paymentRef: sessionId,
     });
 
-    await this.cartService.clearCart(payload.userId);
+    await this.cartService.clearCart(payload.owner);
     await this.redis.del(`stripe:session:${sessionId}`);
     return paid;
   }
