@@ -274,7 +274,8 @@ Stop local processes on `5432`, `6379`, `9092`, `3000` before starting Compose.
 ```bash
 # From repo root
 cp .env.example .env
-# Edit JWT_SECRET in .env (≥ 32 characters)
+# Edit JWT_SECRET in .env (≥ 32 characters). This root .env is what Compose reads.
+# You do not need server/.env or client/.env for Docker-only use.
 
 docker compose up --build
 ```

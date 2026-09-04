@@ -1,0 +1,37 @@
+# Root env (docker compose secrets — keep .env.example)
+.env
+.env.local
+.env.*.local
+
+# Dependencies & builds
+**/node_modules/
+**/dist/
+**/build/
+**/coverage/
+**/.nyc_output/
+
+# Tooling / caches
+**/.vite/
+**/.turbo/
+**/.temp/
+**/.tmp/
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# Agent skill installs (local)
+**/.agents/
+**/.claude/
+**/.windsurf/
+**/skills-lock.json
+
+# Misc
+*.pid
+*.seed
