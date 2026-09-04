@@ -401,7 +401,7 @@ npm run test:e2e  # HTTP: health, admin guard, register → order
 
 ---
 
-## Security (current)
+## Security
 
 - Admin-only catalog writes, coupons CRUD, order status, analytics, low-stock  
 - Session via **httpOnly** cookie `eventcart_access`; Bearer for scripts  
@@ -413,10 +413,3 @@ npm run test:e2e  # HTTP: health, admin guard, register → order
 - Request IDs (`x-request-id`); production errors omit stacks  
 
 ---
-
-## Optional next steps
-
-- Stricter order status state machine  
-- `docker-compose.dev.yml` — infra only while Nest/Vite run on the host  
-- Stripe webhooks for production-style payment confirmation  
-- Real email/SMS from the Kafka consumer  
